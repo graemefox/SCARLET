@@ -74,3 +74,24 @@ If the run seems to hang forever at the cnvpytor step, it may be that you have n
 
 If you get the Docker Error: "docker: permission denied while trying to connect to the docker daemon socket".... on Ubuntu (based) systems, you need to add your user to the docker group. 
 Follow the instructions here: (https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket)
+
+### About
+This workflow uses many third-party tools to function and relies on the hard work and expertise of their respective authors. 
+This list includes (but may not be limited to...):
+
+[rapidCNS2](https://github.com/areebapatel/Rapid-CNS2)
+[wf-human-variation](https://github.com/epi2me-labs/wf-human-variation)
+[modkit](https://github.com/nanoporetech/modkit)
+[samtools](https://github.com/samtools/samtools)
+[NanoPlot](https://github.com/wdecoster/NanoPlot)
+[mosdepth](https://github.com/brentp/mosdepth)
+[methylartist](https://github.com/adamewing/methylartist)
+[clairS-TO](https://github.com/HKU-BAL/ClairS-TO)
+[CNVpytor](https://github.com/abyzovlab/CNVpytor)
+[VCFtools](https://vcftools.github.io/)
+[ANNOVAR](https://annovar.openbioinformatics.org/en/latest/)
+[Sturgeon](https://github.com/marcpaga/sturgeon)
+[NanoDX](https://gitlab.com/pesk/nanoDx)
+
+### Licence
+SCARLET is distributed under a CC BY-NC 4.0 license. See LICENSE for more information. This license does not override any licenses that may be present in the third party tools used by SCARLET.
