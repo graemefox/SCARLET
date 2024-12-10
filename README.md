@@ -5,6 +5,8 @@
 SCARLET provides a [NEXTFLOW](https://www.nextflow.io) version of the [R.O.B.I.N.](https://github.com/looselab/robin) 'live' tumour classification tool.
 
 ### Data Input
+To generate a sequence data suitable for SCARLET analysis, we recommend either runnig the [R.O.B.I.N.]((https://github.com/looselab/robin) 'live' tool, or using [Readfish](https://github.com/LooseLab/readfish) with the file of targets at bin/NPHD_panel_hg38_clean.bed. Either of these options will produce a data set suitable for analysis.
+
 You need to provide:
 1) a sorted BAM file with methylation probabilities that has been aligned to [GRCh38](https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.26/).
 2) the associated .bai index.
