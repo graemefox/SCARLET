@@ -17,9 +17,11 @@ nextflow
 ```
 
 ### Clone repo and download required models
+```
 git clone https://github.com/graemefox/SCARLET.git
 cd SCARLET/bin
 wget https://gitlab.com/euskirchen-lab/crossNN/-/blob/master/models/Capper_et_al_NN.pkl
+```
 
 ### Pull the latest SCARLET docker image:
 ```
