@@ -38,8 +38,7 @@ nextflow pull epi2me-labs/wf-human-variation
 ## define sample name, ID and output directory, input BAM and reference genome:
 
 SAMPLE=sample_01
-PATIENT=JohnDoe
-OUTPUT_DIR=${SAMPLE}_output
+OUTDIR=${SAMPLE}_output
 BAM=my_data.bam
 REFERENCE=my_reference.fa.gz
 ANNOTATIONS=my_annotation_set.gtf
