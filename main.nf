@@ -5,7 +5,7 @@ nextflow.enable.dsl=2
 outdir = file(params.outdir)
 outdir.mkdir()
 
-nextflow_version="v.0.9.2"
+nextflow_version="v.0.1"
 
 // default behaviour is to NOT:
 // run rapidCNS2 classifier
@@ -22,7 +22,7 @@ params.nanodx = false
 log.info """\
 
         ================================================================
-        Methylation-based CNS tumour characterisationn - Nextflow P I P E L I N E ${nextflow_version}
+        SCARLET - Nextflow P I P E L I N E ${nextflow_version}
         ================================================================
 
         INPUTS
@@ -43,16 +43,6 @@ log.info """\
         ================================================================
         To run with SLURM, add -process.executor='slurm' to your nextflow command.
         ================================================================
-
-        ================================================================
-        Latest Changes in v.0.9.2:
-        - Variants also called by clair3_so - somatic only tumour caller
-        - Somatic variants reported alongside "all" mutations in IGV report and tables
-        - Software versions stated in final report
-        - Depth of coverage of target genes calculated and anything +/- 1.5 SDs reported
-        - General tidying, organisation, and NEXTFLOW-ness
-        ================================================================
-
         """
         .stripIndent()
 
