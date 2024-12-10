@@ -44,7 +44,7 @@ REFERENCE=my_reference.fa.gz
 ANNOTATIONS=my_annotation_set.gtf
 
 ## run the pipeline
-nextflow run graemefox/SCARLET \
+nextflow run SCARLET/main.nf \
         -with-docker graefox/scarlet:latest \
         --sample $SAMPLE \
         --bam $BAM \
