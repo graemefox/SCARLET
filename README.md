@@ -8,10 +8,11 @@ SCARLET provides a [NEXTFLOW](https://www.nextflow.io) version of the [R.O.B.I.N
 You need to provide:
 1) a sorted BAM file with methylation probabilities that has been aligned to [GRCh38](https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.26/).
 2) the associated .bai index.
-3) the GRh38 genome reference sequence.
+3) the GRh38 genome reference sequence and annotation set (GTF).
 
 ### Software Requirements:
 ```
+git
 docker
 nextflow
 ```
