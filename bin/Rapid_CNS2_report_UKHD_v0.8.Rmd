@@ -350,12 +350,9 @@ show_mgmt <- FALSE
 mgmt_too_low <- TRUE
 ### if methylartist and mgmt exist
 if (methylartist_plot == "true" & mgmt == "true")
-write.table(mgmt_cov, file="/data/graeme/mgmt_cov.txt")
-write.table(mgmt_minimum_cov, file="/data/graeme/mgmt_minimum_cov.txt")
 if (as.numeric(mgmt_cov) >= as.numeric(mgmt_minimum_cov))
 show_mgmt <- TRUE
 mgmt_too_low <- FALSE
-write.table(show_mgmt, file="/data/graeme/show_mgmt.txt")
 ```
 
 
