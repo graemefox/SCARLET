@@ -587,7 +587,7 @@ process igv_reports {
  
     script:
         """
-        echo -e "Chr\tStart\tEnd\tFunc\tGene\tExonicFunc\tAAChange\tcytoBand\t1000g_EUR\tCOSMIC\tMUTATION_CLASS" > ${sample}_clair3_report.merged.csv
+        echo -e "Chr\tStart\tEnd\tFunc\tGene\tExonicFunc\tAAChange\tcytoBand\t1000g_EUR\tMUTATION_CLASS" > ${sample}_clair3_report.merged.csv
         if [ -f ${somatic_clair3_report} ]; then
             sed -e 's/,/\t/g' -e 's/\"//g' ${sample}_somatic_clair3_report.csv > ${sample}_somatic_clair3_report.fmt.csv 
             awk 'BEGIN {FS=OFS="\\t"} NR==1 {\$0=\$0 OFS "MUTATION_CLASS"} NR>1 {\$(NF+1)="SOMATIC"}1' ${sample}_somatic_clair3_report.fmt.csv > ${sample}_somatic_clair3_report.new.fmt.csv
@@ -605,7 +605,7 @@ process igv_reports {
             --begin 2 \
             --end 3 \
             --flanking 1000 \
-            --info-columns Chr Start End Func Gene ExonicFunc AAChange cytoBand 1000g_EUR COSMIC MUTATION_CLASS \
+            --info-columns Chr Start End Func Gene ExonicFunc AAChange cytoBand 1000g_EUR MUTATION_CLASS \
             --output ${sample}_igv-report.html \
             --standalone \
             --tracks ${input_bam} ${annotations}
@@ -828,8 +828,8 @@ process table_annovar {
         /annovar/humandb/ \
         -buildver ${annovar_ver} \
         -out ${output_file}${ext} \
-        -protocol refGene,cytoBand,avsnp147,dbnsfp30a,1000g2015aug_eur,cosmic70 \
-        -operation gx,r,f,f,f,f \
+        -protocol refGene,cytoBand,avsnp147,dbnsfp30a,1000g2015aug_eur \
+        -operation gx,r,f,f,f \
         -nastring . \
         -csvout \
         -polish \
