@@ -393,7 +393,7 @@ process human_variation_sv {
         --out_dir wf-human-variation_reports \
         --bam_min_coverage ${bam_min_coverage} \
         --threads ${threads} \
-        --sniffles_args="--non-germline"
+        --sniffles_args="--mosaic"
         """
 }
 
@@ -1072,12 +1072,13 @@ process STURGEON_modkit_extract {
         path "*_modkit_output.txt", emit: modkit_extract_output
 
     script:
+        def args = task.ext.args ?: ''
         """
         /modkit \
         extract \
         ${mod_merged_bam} \
         ${sample}_modkit_output.txt \
-        --threads ${threads}
+        --threads ${threads} $args
         """
 }
 
