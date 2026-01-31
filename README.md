@@ -12,6 +12,12 @@ You need to provide:
 2) the associated .bai index.
 3) the GRh38 genome reference sequence and annotation set (GTF).
 
+### Updates in v0.02
+1) updated to work with modkit v0.5 (updated in docker image)
+2) second model added to nanoDx/crossNN classifier: pancan
+3) CNV results summarised in table in report
+4) New output generated: csv file of results
+
 ### Software Requirements:
 ```
 git
@@ -22,12 +28,13 @@ nextflow
 ### Clone repo and download required models
 ```
 git clone https://github.com/graemefox/SCARLET.git
-wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/Capper_et_al_NN.pkl?inline=false -O SCARLET/bin/Capper_et_al_NN.pkl
+wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/Capper_et_al_NN.pkl?inline=false -O SCARLET/src/Capper_et_al_NN.pkl
+wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/pancan_devel_v5i_NN.pkl?ref_type=heads&inline=false -O SCARLET/src/pancan_devel_v5i_NN.pkl
 ```
 
-### Pull the latest SCARLET docker image:
+### Pull the DEV SCARLET docker image:
 ```
-docker pull graefox/scarlet:latest
+docker pull graefox/scarlet:dev7
 ```
 
 ### Pull the latest version of the required wf-human-variation workflow
@@ -54,7 +61,6 @@ nextflow run SCARLET/main.nf \
         --reference $REFERENCE \
         --annotations $ANNOTATIONS \
         --nanoplot \
-        --sturgeon --rapidcns2 --nanodx
 ```
 
 ### Optional extra parameters (with their default values)
@@ -63,11 +69,7 @@ These a have default values specified in the nextflow.config file, but you may o
 --threads 16 (CPUs to use [default: 64]) 
 --bam_min_coverage (minimum coverage required to run the epi2melabs/wf-human-variation stages [ default: 5]) 
 --minimum_mgmt_cov (minimum avg coverage at the mgmt promoter. Coverage must be greater than this to run the analysis of mgmt methylation)
---rapidcns2 (the nextflow will run the rapidCNS2 (https://github.com/areebapatel/Rapid-CNS2) classifier if the --rapidcns2 flag is passed [Defualt behaviour is to NOT run rapidCNS2])
---sturgeon (the nextflow will run the sturgeon (https://github.com/marcpaga/sturgeon) classifier if the --sturgeon flag is passed [Defualt behaviour is to NOT run sturgeon])
---nanodx (the nextflow will run the nanoDx (https://gitlab.com/pesk/nanoDx) classifier if the --nanodx flag is passed [Defualt behaviour is to NOT run nanoDx])
 --nanoplot (nextflow will ALSO run NanoPlot to generate a QC report[ Default behaviour is to NOT run nanoplot])
-
 ```
 
 ### To run with slurm

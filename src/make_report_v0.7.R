@@ -8,54 +8,60 @@ for (package in c('optparse', 'rmarkdown','kableExtra','knitr')) {
 
 #Parse arguments
 option_list = list(
-  make_option(c("-a", "--methylartist"), type="character", default="false",
+  make_option(c("--methylartist"), type="character", default="false",
               help="methylartist mgmt plot", metavar="character"),
-  make_option(c("-b", "--promoter_mgmt_coverage"), type="integer", default=NULL,
+  make_option(c("--promoter_mgmt_coverage"), type="integer", default=NULL,
               help="average coverage at mgmt promoter", metavar="character"),
-  make_option(c("-c", "--cnv_plot"), type="character", default=NULL,
+  make_option(c("--cnv_plot"), type="character", default=NULL,
               help="cnv plot", metavar="character"),
-  make_option(c("-d", "--mgmt_cov"), type="character", default=NULL,
+  make_option(c("--mgmt_cov"), type="character", default=NULL,
               help="calculated cov of mgmt", metavar="character"),
-  make_option(c("-e", "--coverage"), type="character", default=NULL,
+  make_option(c("--coverage"), type="character", default=NULL,
               help="coverage summary", metavar="character"),
-  make_option(c("-f", "--sturgeon_csv"), type="character", default="BLAH",
+  make_option(c("--sturgeon_csv"), type="character", default="BLAH",
               help="sturgeon_csv", metavar="character"),
-  make_option(c("-g", "--igv_report"), type="character", default="false",
+  make_option(c("--igv_report"), type="character", default="false",
               help="IGV-report html output", metavar="character"),
-  make_option(c("-i", "--seq"), type="character", default="Unknown",
+  make_option(c("--seq"), type="character", default="Unknown",
              help="Platform used to sequencing; F=MinION/GridION, P=PromethION", metavar="character"),
-  make_option(c("-j", "--nextflow_ver"), type="character", default=NULL,
+  make_option(c("--nextflow_ver"), type="character", default=NULL,
               help="Include the version of the Nextflow pipeline used to generate the report", metavar="character"),
-  make_option(c("-k", "--mgmt_minimum_cov"), type="character", default="false",
+  make_option(c("--mgmt_minimum_cov"), type="character", default="false",
               help="user supplied minimum DoC mgmt", metavar="character"),
-  make_option(c("-l", "--somatic_mutations"), type="character", default=NULL, 
+  make_option(c("--somatic_mutations"), type="character", default=NULL, 
              help="somatic_mutations table", metavar="character"),
-  make_option(c("-m", "--mutations"), type="character", default=NULL, 
+  make_option(c("--mutations"), type="character", default=NULL, 
              help="mutations table", metavar="character"),
-  make_option(c("-n", "--avg_gene_cov "), type="character", default=NULL, 
-              help="average gene coveraget", metavar="character"),
-  make_option(c("-o", "--output_dir"), type="character", default=NULL,
+  make_option(c("--avg_gene_cov"), type="character", default=NULL, 
+              help="average gene coverage", metavar="character"),
+  make_option(c("--output_dir"), type="character", default=NULL,
               help="output directory", metavar="character"),
-  make_option(c("-p", "--prefix"), type="character", default=NULL, 
+  make_option(c("--prefix"), type="character", default=NULL, 
               help="prefix", metavar="character"),
-  make_option(c("-q", "--uniq_genes_cov"), type="character", default="false",
+  make_option(c("--cnv_summary"), type="character", default=NULL, 
+              help="cnv summary file", metavar="character"),
+  make_option(c("--uniq_genes_cov"), type="character", default="false",
               help="bedtools coverage calculated per-gene coverage", metavar="character"),
-  make_option(c("-r", "--rf_details"), type="character", default=NULL,
+  make_option(c("--rf_details"), type="character", default=NULL,
               help="RF details tsv", metavar="character"),
-  make_option(c("-s", "--sample"), type="character", default=NULL,
+  make_option(c("--sample"), type="character", default=NULL,
               help="sample", metavar="character"),
-  make_option(c("-t", "--mgmt"), type="character", default="false", 
+  make_option(c("--mgmt"), type="character", default="false", 
              help="mgmt prediction", metavar="character"),
-  make_option(c("-u", "--report_UKHD"), type="character", default=NULL,
+  make_option(c("--report_UKHD"), type="character", default=NULL,
               help="report_UKHD R markdown doc", metavar="character"),
-  make_option(c("-v", "--votes"), type="character", default=NULL,
+  make_option(c("--targets_bed"), type="character", default=NULL,
+              help="BED file or targets provided to SCARLET", metavar="character"),
+  make_option(c("--votes"), type="character", default=NULL,
               help="votes file", metavar="character"),
-  make_option(c("-w", "--software_versions"), type="character", default=NULL,
+  make_option(c("--software_versions"), type="character", default=NULL,
               help="software_versions.txt file generated by pipeline giving version numbers", metavar="character"),
-  make_option(c("-x", "--user_params"), type="character", default=NULL,
+  make_option(c("--user_params"), type="character", default=NULL,
               help="file of user specified parameters", metavar="character"),
-  make_option(c("-z", "--nanodx_votes"), type="character", default=NULL,
-              help="*_nanodx_votes.txt file generated when --nanodx is passed", metavar="character")
+  make_option(c("--nanodx_capper_votes"), type="character", default=NULL,
+              help="*_nanodx_capper_votes.txt file generated when --nanodx is passed", metavar="character"),
+  make_option(c("--nanodx_pancan_votes"), type="character", default=NULL,
+              help="*_nanodx_pancan_votes.txt file generated when --nanodx is passed", metavar="character")
 )
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
@@ -76,12 +82,15 @@ software_versions <- opt$software_versions
 uniq_genes_cov <- opt$uniq_genes_cov
 mgmt = "false"
 sturgeon_csv <- opt$sturgeon_csv
-nanodx_votes <- opt$nanodx_votes
+nanodx_capper_votes <- opt$nanodx_capper_votes
+nanodx_pancan_votes <- opt$nanodx_pancan_votes
 rf_details <- opt$rf_details
 votes <- opt$votes
 mgmt_cov <- opt$promoter_mgmt_coverage
 mgmt_minimum_cov <- opt$mgmt_minimum_cov
 user_params <- opt$user_params
+targets_bed <- opt$targets_bed
+cnv_summary <- opt$cnv_summary
 
 mgmt_status <- read.delim(opt$mgmt)
 if ("average.pred.status" %in% colnames(mgmt_status)) {
@@ -94,19 +103,22 @@ if (opt$methylartist != "dummy_plot.png") {
 }
 
 # generate the report
-inc_igvreport = FALSE
-exc_igvreport = TRUE
+inc_igvreport = FALSE # changing to full / lite
+exc_igvreport = TRUE # changing to full / lite
+full_report = FALSE
+lite_report = TRUE
 # lite version
 mgmt = "true"
 render(report_UKHD, 
        output_format = "html_document", 
        output_dir = opt$output_dir,
-       output_file = paste0(prefix,"_CNS_tumour_characterisation_report_lite.html"))
-
-inc_igvreport = TRUE
-exc_igvreport = FALSE
+       output_file = paste0(prefix,"_SCARLET_report_lite.html"))
+inc_igvreport = TRUE # changing to full / lite
+exc_igvreport = FALSE # changing to full / lite
+full_report = TRUE
+lite_report = FALSE
 # full version
 render(report_UKHD,
-       output_format = "html_document",
+      output_format = "html_document",
        output_dir = opt$output_dir,
-       output_file = paste0(prefix,"_CNS_tumour_characterisation_report_full.html"))
+       output_file = paste0(prefix,"_SCARLET_report_full.html"))

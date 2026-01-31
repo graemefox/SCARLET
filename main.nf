@@ -5,19 +5,13 @@ nextflow.enable.dsl=2
 outdir = file(params.outdir)
 outdir.mkdir()
 
-nextflow_version="v.0.1"
+nextflow_version="v.0.2"
 
 // default behaviour is to NOT:
-// run rapidCNS2 classifier
-// run sturgeon classifier 
-// run nanoDx classifier
 // run NanoPlot
 
 // default the various optional parameters to false
-params.rapidcns2 = false
-params.sturgeon = false
 params.nanoplot = false
-params.nanodx = false
 
 log.info """\
 
@@ -35,14 +29,16 @@ log.info """\
         threads                 : ${params.threads}
         bam_min_coverage        : ${params.bam_min_coverage}
         min_mgmt_coverage       : ${params.minimum_mgmt_cov}
-        rapidcns2               : ${params.rapidcns2}
-        sturgeon                : ${params.sturgeon}
         nanoplot                : ${params.nanoplot}
-        nanodx                  : ${params.nanodx}
 
         ================================================================
-        To run with SLURM, add -process.executor='slurm' to your nextflow command.
         ================================================================
+
+        Updates in v0.02:
+            - updated to work with modkit v0.5 (updated in docker image)
+            - second model added to nanoDx/crossNN classifier: pancan
+            - CNV results summarised in table in report
+            - New output generated: csv file of results
         """
         .stripIndent()
 
@@ -59,7 +55,9 @@ process get_versions {
         /modkit --version >> software_versions1.txt
         NanoPlot -v >> software_versions1.txt
         /mosdepth --version -v >> software_versions1.txt
-        python3 /methylartist/methylartist -v >> software_versions1.txt
+        source /methylartist-venv/bin/activate
+        /methylartist-venv/bin/methylartist -v >> software_versions1.txt
+        deactivate
         bcftools -v | head -n 1 >> software_versions1.txt
         echo "clairS_to v0.1.0" >> software_versions1.txt
         echo "igv_reports v1.12.0" >> software_versions1.txt
@@ -72,7 +70,7 @@ process get_versions {
         source /sturgeon-0.4.4/venv/bin/activate
         sturgeon -v >> software_versions1.txt
         deactivate
-        echo "nanoDx - TODO" >> software_versions1.txt
+        echo "nanoDx/crossNN - TODO" >> software_versions1.txt
         """
 }
 
@@ -117,11 +115,10 @@ process check_bam_has_meth_data {
 
     script:
         """
-        samtools \
-        view \
-        -@${threads} \
-        ${input_bam} \
-        | grep -m 1 MM:Z
+        if ! samtools view -@${threads} ${input_bam} | grep -qm 1 'MM:Z'; then
+            echo "ERROR: No methylation data (MM:Z tag) found in BAM file: ${input_bam}" >&2
+            exit 1
+        fi
         """
 }
 
@@ -130,6 +127,7 @@ process modkit_adjust_mods {
         path(input_bam)
         val(sample)
         val(threads)
+        val(check_for_meth_data)
 
     output:
         path "*_modkit_merge.bam", emit: modkit_merged_bam
@@ -211,6 +209,7 @@ process check_mgmt_coverage {
 
     output:
         stdout emit: mgmt_avg_cov
+        path("*results.csv"), optional: true, emit: sample_results_table
 
     script:
         """
@@ -220,6 +219,7 @@ process check_mgmt_coverage {
         --by ${mgmt_bed} \
         mgmt_cov ${input_bam}        
         cov="\$(grep "^chr10_region" mgmt_cov.mosdepth.summary.txt | awk '{ print \$4 }')"
+        echo MGMT_COV,\${cov} > mgmt_cov_results.csv
         echo \${cov}
 	"""
 }
@@ -236,25 +236,25 @@ process draw_mgmt_methylartist {
         val(minimum_mgmt_coverage)
 
     output:
-        path "*.png", emit: mgmt_plot optional true
-    
-    script:        
-          if ( mgmt_avg_cov.toFloat() > minimum_mgmt_coverage.toFloat() )
+        path "*.png", optional: true, emit: mgmt_plot
+
+    script:       
+            if ( mgmt_avg_cov.toFloat() > minimum_mgmt_coverage.toFloat() )
             """
-            python3 /methylartist/methylartist \
+            source /methylartist-venv/bin/activate
+            /methylartist-venv/bin/methylartist \
             locus \
             -i chr10:129466536-129467536 \
             -b ${bam} \
             --ref ${reference} \
             --motif CG \
             --mods m
+            deactivate
             """
             else
-
             """
             echo "dummy_file" > dummy_plot.png
-            """
-            
+            """            
 }
 
 process mosdepth {
@@ -310,11 +310,14 @@ process human_variation_mods {
     
     output:
         path("*/*wf_mods.bedmethyl.gz"), emit: bedmethyl_gz
+
+    // get the correct profile
+    def profileArg = workflow.profile ? "-profile ${workflow.profile}" : ""
     
     script:
         """
         nextflow run epi2me-labs/wf-human-variation -r master \
-        -profile standard \
+        ${profileArg} \
         --ref ${reference} \
         --mod \
         --bam ${merged_bam} \
@@ -344,15 +347,19 @@ process human_variation_cnv {
         val(bam_min_coverage)
         val(threads)
 
-    publishDir("${params.outdir}", mode: 'copy')
+    publishDir("${params.outdir}", mode: 'copy', pattern: '*/*report.html')
 
     output:
         path("*/*wf-human-cnv-report.html"), emit: human_variation_cnv_report
+        path("*/qdna_seq/*segs.seg"), optional: true, emit: qdnaseq_results
+    
+    // get the correct profile
+    def profileArg = workflow.profile ? "-profile ${workflow.profile}" : ""
 
     script:
         """
         nextflow run epi2me-labs/wf-human-variation -r master \
-        -profile standard \
+        ${profileArg} \
         --ref ${reference} \
         --cnv \
         --use_qdnaseq \
@@ -362,6 +369,21 @@ process human_variation_cnv {
         --sample_name ${sample} \
         --bam_min_coverage ${bam_min_coverage} \
         --threads ${threads}
+        """
+}
+
+process summarise_qdna_seq {
+    input:
+        path(summarise_cnv_changes_sh)
+        path(qdna_results_table)
+        path(hg38_centromeres)
+
+    output:
+        path("*.csv"), emit: cnv_summary
+
+    script:
+        """
+        /bin/bash ${summarise_cnv_changes_sh} ${qdna_results_table} cnv_summary.csv ${hg38_centromeres}
         """
 }
 
@@ -380,11 +402,14 @@ process human_variation_sv {
 
     output:
         path("*/*wf-human-sv-report.html"), emit: human_variation_sv_report
+    
+    // get the correct profile
+    def profileArg = workflow.profile ? "-profile ${workflow.profile}" : ""
 
     script:
         """
         nextflow run epi2me-labs/wf-human-variation -r master \
-        -profile standard \
+        ${profileArg} \
         --ref ${reference} \
         --sv \
         --bam ${input_bam} \
@@ -393,7 +418,7 @@ process human_variation_sv {
         --out_dir wf-human-variation_reports \
         --bam_min_coverage ${bam_min_coverage} \
         --threads ${threads} \
-        --sniffles_args="--non-germline"
+        --sniffles_args="--mosaic"
         """
 }
 
@@ -499,11 +524,14 @@ process human_variation_snp {
     output:
         path("*/*wf-human-snp-report.html"), emit: human_variation_snp_report
         path("*/*wf_snp.vcf.gz"), emit: human_variation_snp_vars
+    
+    // get the correct profile
+    def profileArg = workflow.profile ? "-profile ${workflow.profile}" : ""
 
     script:
         """
         nextflow run epi2me-labs/wf-human-variation -r master \
-        -profile standard \
+        ${profileArg} \
         --ref ${reference} \
         --snp \
         --bam ${input_bam} \
@@ -1023,15 +1051,18 @@ process make_report {
         val(nextflow_version)
         path(input_bam)
         val(seq)
-        val(nanodx_votes) // nanodx classifier output
+        val(nanodx_capper_votes) // nanodx capper classifier output
+        val(nanodx_pancan_votes) // nanodx pancan classifier output
         path(versions_file) // file of software version info
         path(unique_genes_cov) // unique genes cov
         path(mgmt_plot)
         val(avg_gene_cov)
         path(user_params)
+        path(targets)
+        path(cnv_summary)
     
     output:
-	val(true)
+	    val(true)
 
     script:
         """
@@ -1042,23 +1073,26 @@ process make_report {
         --cnv_plot ${cnv_plot} \
         --rf_details ${rf_details} \
         --votes ${votes} \
-        --output_dir ${PWD}/${params.outdir} \
+        --output_dir ${params.outdir} \
         --coverage ${mosdepth_plot_data} \
         --sample ${sample} \
+        --mgmt_minimum_cov ${mgmt_minimum_cov} \
         --report_UKHD ${report_UKHD} \
         --methylartist ${mgmt_plot} \
         --sturgeon_csv ${sturgeon_class} \
         --igv_report ${igv_report} \
         --nextflow_ver ${nextflow_version} \
         --seq ${seq} \
-        --nanodx_votes ${nanodx_votes} \
+        --nanodx_capper_votes ${nanodx_capper_votes} \
+        --nanodx_pancan_votes ${nanodx_pancan_votes} \
         --software_versions ${versions_file} \
         --mgmt ${mgmt_status} \
+        --cnv_summary ${cnv_summary} \
+        --targets_bed ${targets} \
         --avg_gene_cov ${avg_gene_cov} \
         --uniq_genes_cov ${unique_genes_cov} \
         --user_params ${user_params} \
-        --mgmt_minimum_cov ${mgmt_minimum_cov} \
-        --promoter_mgmt_coverage ${mgmt_cov} 
+        --promoter_mgmt_coverage ${mgmt_cov}
         """
 }
 
@@ -1074,7 +1108,7 @@ process STURGEON_modkit_extract {
     script:
         """
         /modkit \
-        extract \
+        extract full \
         ${mod_merged_bam} \
         ${sample}_modkit_output.txt \
         --threads ${threads}
@@ -1115,7 +1149,7 @@ process STURGEON_predict {
         predict \
         -i ${input_bed} \
         -o output \
-        --model-files /sturgeon-0.4.2/sturgeon/include/models/CAPPER_MODEL.zip \
+        --model-files /sturgeon-0.4.4/sturgeon/include/models/CAPPER_MODEL.zip \
         --plot-results        
         """
 }
@@ -1123,7 +1157,7 @@ process STURGEON_predict {
 process nanoDx_modkit {
     input:
         tuple path(input_bam), path(bam_index)
-        path(reference)
+        tuple path(reference_fa), path(reference_fai)
         path(mapping)
         val(sample)
         val(threads)
@@ -1135,7 +1169,7 @@ process nanoDx_modkit {
         """
         /modkit pileup \
         ${input_bam} - \
-        --ref ${reference} \
+        --ref ${reference_fa} \
         --include-bed ${mapping} \
         --preset traditional \
         --only-tabs \
@@ -1184,10 +1218,10 @@ process nanoDx_annotate_bedMethyl {
         """
 }
 
-process nanoDx_NN_classify {
+process nanoDx_NN_classify_capper {
     input:
         path(classify_NN_bedMethyl_py)
-        path(model)
+        path(capper_model)
         path(input_bed)
         val(sample)
 
@@ -1197,10 +1231,30 @@ process nanoDx_NN_classify {
     script:
         """
         python3 ${classify_NN_bedMethyl_py} \
-        -m ${model} \
+        -m ${capper_model} \
         -i ${input_bed} \\
-        -v ${sample}_nanoDx_votes.txt \
-        -o ${sample}_nanoDx_output.txt
+        -v ${sample}_capper_nanoDx_votes.txt \
+        -o ${sample}_capper_nanoDx_output.txt
+      """
+}
+
+process nanoDx_NN_classify_pancan {
+    input:
+        path(classify_NN_bedMethyl_py)
+        path(pancan_model)
+        path(input_bed)
+        val(sample)
+
+    output:
+        path "*nanoDx_votes.txt", emit: nanoDx_votes
+
+    script:
+        """
+        python3 ${classify_NN_bedMethyl_py} \
+        -m ${pancan_model} \
+        -i ${input_bed} \\
+        -v ${sample}_pancan_nanoDx_votes.txt \
+        -o ${sample}_pancan_nanoDx_output.txt
       """
 }
 
@@ -1263,9 +1317,6 @@ process write_user_params {
         val(threads)
         val(minimum_mgmt_cov)
         path(annotations)
-        val(rapidcns2)
-        val(sturgeon)
-        val(nanodx)
         val(nanoplot)
  
     output:
@@ -1280,10 +1331,41 @@ process write_user_params {
         echo -e "THREADS,${threads}" >> user_parameters.csv
         echo -e "MINIMUM_MGMT_COV,${minimum_mgmt_cov}" >> user_parameters.csv
         echo -e "ANNOTATIONS,${annotations}" >> user_parameters.csv
-        echo -e "RAPIDCNS2,${rapidcns2}" >> user_parameters.csv
-        echo -e "STURGEON,${sturgeon}" >> user_parameters.csv
-        echo -e "NANODX,${nanodx}" >> user_parameters.csv
         echo -e "NANOPLOT,${nanoplot}" >> user_parameters.csv
+        """
+}
+
+process build_results_table {
+    input:
+        val(sample)
+        path(tabulate_snps_sh)
+        path(mgmt_coverage)
+        path(qdnaseq_summary)
+        path(annotated_snps)
+        path(annotated_somatic_snps)
+        path(mgmt_status)
+        path(rapid_cns2_votes)
+        path(sturgeon_scores)
+        path(nanodx_capper_scores)
+        path(nanodx_pancan_scores)
+
+    publishDir("${params.outdir}", mode: 'copy')
+
+    output:
+        path("*.csv"), optional: true
+
+    script:
+        """
+        echo "Result,${sample}" > ${sample}_results.csv
+        awk 'NR==1 {max=\$3; line=\$0; next} \$3>max {max=\$3; line=\$0} END {split(line,a," "); printf "RAPID_CNS2_CLASS,%s %.2f%%\\n", a[1], max}' ${rapid_cns2_votes} >> ${sample}_results.csv
+        awk -F',' 'NR==1{for(i=2;i<=NF;i++)h[i]=\$i} NR==2{m=\$2;c=2; for(i=3;i<=NF;i++) if(\$i>m){m=\$i;c=i} printf "STURGEON_CLASS,%s %.2f%%\\n", h[c], m*100}' "${sturgeon_scores}" >> "${sample}_results.csv"
+        awk -F'\t' 'NR==2{max=\$3; cls=\$2; gsub(/,/, " ", cls)} NR>2{if(\$3>max){max=\$3; cls=\$2; gsub(/,/, " ", cls)}} END{printf "NANODX_CAPPER,%s %.2f%%\\n", cls, max*100}' "${nanodx_capper_scores}" >> "${sample}_results.csv"
+        awk -F'\t' 'NR==2{max=\$3; cls=\$2; gsub(/,/, " ", cls)} NR>2{if(\$3>max){max=\$3; cls=\$2; gsub(/,/, " ", cls)}} END{printf "NANODX_PANCAN,%s %.2f%%\\n", cls, max*100}' "${nanodx_pancan_scores}" >> "${sample}_results.csv"
+        awk -F',' 'NR==2 { if (\$1 == "NA" || \$3 == "NA") print "MGMT_STATUS,TOO LOW"; else { gsub(/"/, "", \$3); printf "MGMT_STATUS,AVG %.2f %s\\n", \$1, \$3 } }' "${mgmt_status}" >> "${sample}_results.csv" 
+        if [ -f "$mgmt_coverage" ]; then cat ${mgmt_coverage} >> ${sample}_results.csv ; fi
+        if [ -f "$qdnaseq_summary" ]; then cat ${qdnaseq_summary} >> ${sample}_results.csv ; fi
+        /bin/bash ${tabulate_snps_sh} ${annotated_snps} "MUTATION," >> ${sample}_results.csv
+        /bin/bash ${tabulate_snps_sh} ${annotated_somatic_snps} "SOMATIC_MUTATION," >> ${sample}_results.csv
         """
 }
 
@@ -1312,67 +1394,88 @@ workflow {
     Channel.from(params.threads)
     .set {threads}
 
+    Channel.from(params.bam_min_coverage)
+    .set {bam_min_coverage}
+
+    //Channel.from(params.minimum_fusions_supporting_reads)
+    //.set {fusions_min}
+
     Channel.from(params.minimum_mgmt_cov)
     .set {minimum_mgmt_cov}
 
     Channel.fromPath(params.annotations, checkIfExists: true)
     .set {annotations}
 
-    // Collect variables and scripts from bin
+    // Collect variables and scripts from src
 
-    Channel.fromPath("${projectDir}/bin/NPHD_panel_hg38_clean.bed", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/NPHD_panel_hg38_clean.bed", checkIfExists: true)
     .set {targets}
 
-    Channel.fromPath("${projectDir}/bin/mgmt_hg38.bed", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/mgmt_hg38.bed", checkIfExists: true)
     .set {mgmt_bed}
 
-    Channel.fromPath("${projectDir}/bin/mgmt_probes.Rdata", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/mgmt_probes.Rdata", checkIfExists: true)
     .set {probes}
 
-    Channel.fromPath("${projectDir}/bin/mgmt_137sites_mean_model.Rdata", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/mgmt_137sites_mean_model.Rdata", checkIfExists: true)
     .set {model}
 
-    Channel.fromPath("${projectDir}/bin/mgmt_pred_v0.4.R", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/mgmt_pred_v0.4.R", checkIfExists: true)
     .set {mgmt_pred}
 
-    Channel.fromPath("${projectDir}/bin/methylation_classification_nanodx_v0.3.R", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/methylation_classification_nanodx_v0.3.R", checkIfExists: true)
     .set {meth_class}
 
-    Channel.fromPath("${projectDir}/bin/top_probes_hm450.Rdata", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/top_probes_hm450.Rdata", checkIfExists: true)
     .set {topprobes}
     
-    Channel.fromPath("${projectDir}/bin/capper_top_100k_betas_binarised.Rdata", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/capper_top_100k_betas_binarised.Rdata", checkIfExists: true)
     .set {trainingdata}
 
-    Channel.fromPath("${projectDir}/bin/HM450.hg38.manifest.gencode.v22.Rdata", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/HM450.hg38.manifest.gencode.v22.Rdata", checkIfExists: true)
     .set {arrayfile}
 
-    Channel.fromPath("${projectDir}/bin/filter_report_v0.3.R", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/filter_report_v0.3.R", checkIfExists: true)
     .set {filterreport}
 
-    Channel.fromPath("${projectDir}/bin/make_report_v0.7.R", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/make_report_v0.7.R", checkIfExists: true)
     .set {makereport}
 
-    Channel.fromPath("${projectDir}/bin/Rapid_CNS2_report_UKHD_v0.8.Rmd", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/Rapid_CNS2_report_UKHD_v0.8.Rmd", checkIfExists: true)
     .set {report_UKHD}
 
-    Channel.fromPath("${projectDir}/bin/find_seq_platform.py", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/find_seq_platform.py", checkIfExists: true)
     .set {find_seq_platform_py}
 
-    Channel.fromPath("${projectDir}/bin/hglft_genome_260e9_91a970_clean.bed", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/hglft_genome_260e9_91a970_clean.bed", checkIfExists: true)
     .set {nanoDx_mapping}
 
-    Channel.fromPath("${projectDir}/bin/classify_NN_bedMethyl.py", checkIfExists: true)
+//    Channel.fromPath("${projectDir}/src/GRCh38_gencode_v44_CTAT_lib_Oct292023.plug-n-play/ctat_genome_lib_build_dir/", checkIfExists: true)
+//    .set {ctat_genome_lib}
+
+    Channel.fromPath("${projectDir}/src/classify_NN_bedMethyl.py", checkIfExists: true)
     .set {classify_NN_bedMethyl_py}
 
-    Channel.fromPath("${projectDir}/bin/Capper_et_al_NN.pkl", checkIfExists: true)
-    .set {nanoDx_model}
+    Channel.fromPath("${projectDir}/src/Capper_et_al_NN.pkl", checkIfExists: true)
+    .set {nanoDx_capper_model}
 
-    Channel.fromPath("${projectDir}/bin/unique_genes.bed", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/pancan_devel_v5i_NN.pkl", checkIfExists: true)
+    .set {nanoDx_pancan_model}
+
+    Channel.fromPath("${projectDir}/src/unique_genes.bed", checkIfExists: true)
     .set {unique_genes}
 
-    Channel.fromPath("${projectDir}/bin/filter_gene_cov.R", checkIfExists: true)
+    Channel.fromPath("${projectDir}/src/filter_gene_cov.R", checkIfExists: true)
     .set {filter_gene_cov}
+
+    Channel.fromPath("${projectDir}/src/summarise_cnv_changes.sh", checkIfExists: true)
+    .set {summarise_cnv_changes_sh}
+
+    Channel.fromPath("${projectDir}/src/hg38_centromeres.txt", checkIfExists: true)
+    .set {hg38_centromeres}
+
+    Channel.fromPath("${projectDir}/src/tabulate_snps.sh", checkIfExists: true)
+    .set {tabulate_snps_sh}
 
     //////////////
     // WORKFLOW //
@@ -1381,19 +1484,21 @@ workflow {
     // get software versions
     get_versions_ch = get_versions()
     get_versions_outside_docker_ch = get_versions_outside_docker()
-    merge_versions_files_ch = merge_versions_files(get_versions_ch.versions_file1, get_versions_outside_docker_ch.versions_file2)
 
     // check input bam file for methylation tags
     check_ch = check_bam_has_meth_data(input_bam, threads)
 
     // use modkit to merge 'm' and 'h' mods into a single score
-    modkit_adjust_ch = modkit_adjust_mods(input_bam, sample, threads)
+    modkit_adjust_ch = modkit_adjust_mods(input_bam, sample, threads, check_ch.meth_check)
 
     // index the input bam
     index_ch = index_input_bam(input_bam, threads)
 
     // index the merged bam file 
     merged_index_ch = index_merged_bam(modkit_adjust_ch.modkit_merged_bam, threads)
+
+    // merge files of software versions for report
+    merge_versions_files_ch = merge_versions_files(get_versions_ch.versions_file1, get_versions_outside_docker_ch.versions_file2)
 
     if ( params.nanoplot != false) {
         // generate NanoPlot QC Report
@@ -1426,16 +1531,19 @@ workflow {
     index_suppl_subset_bam_ch=index_suppl_subset_bam(subset_suppl_bam_ch.suppl_subset_bam, threads)
 
     // call and run the epi2me-labs/wf-human-variation : mods
-    human_variation_mods_ch = human_variation_mods(merged_index_ch.indexed_bam, targets, reference, sample, outdir, 1, threads)
+    human_variation_mods_ch = human_variation_mods(merged_index_ch.indexed_bam, targets, reference, sample, outdir, bam_min_coverage, threads)
  
     // call and run the epi2me-labs/wf-human-variation : sv
-    human_variation_sv(subset_suppl_bam_ch.suppl_subset_bam, targets, reference, sample, outdir, 1, index_suppl_subset_bam_ch.suppl_subset_indexed_bam, threads)
+    human_variation_sv(subset_suppl_bam_ch.suppl_subset_bam, targets, reference, sample, outdir, bam_min_coverage, index_suppl_subset_bam_ch.suppl_subset_indexed_bam, threads)
 
     // call and run the epi2me-labs/wf-human-variation : cnv
-    human_variation_cnv(index_ch.indexed_bam_tuple, targets, reference, sample, outdir, 1, threads)
+    human_variation_cnv_ch = human_variation_cnv(index_ch.indexed_bam_tuple, targets, reference, sample, outdir, bam_min_coverage, threads)
+
+    // summarise cnv changes
+    summarise_qdna_seq_ch = summarise_qdna_seq(summarise_cnv_changes_sh, human_variation_cnv_ch.qdnaseq_results, hg38_centromeres)
 
     // run the SNP human variation workflow on the subsetted bam
-    human_variation_snp_ch = human_variation_snp(index_subsetted_bam_ch.subsetted_bam_index, targets, reference, sample, outdir, 1, threads)
+    human_variation_snp_ch = human_variation_snp(index_subsetted_bam_ch.subsetted_bam_index, targets, reference, sample, outdir, bam_min_coverage, threads)
 
     // index the supplied reference fasta
     index_reference_ch = index_reference(reference)
@@ -1478,10 +1586,8 @@ workflow {
     // run the mgmt_pred script
     mgmt_pred_ch = mgmt_pred(mgmt_pred, intersect_bed_ch.intersect_bed, probes, model, sample, threads, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov)
 
-    if (params.rapidcns2 != false) {
-        // run the meth classification script
-        rapid_cns2_ch = rapid_cns2_meth_classification(meth_class, sample, topprobes, trainingdata, arrayfile, threads, human_variation_mods_ch.bedmethyl_gz)
-    }
+    // run the meth classification script
+    rapid_cns2_ch = rapid_cns2_meth_classification(meth_class, sample, topprobes, trainingdata, arrayfile, threads, human_variation_mods_ch.bedmethyl_gz)
     
     // collect report data and generate report
     filter_report_ch = filter_report(filterreport, clair3_annovar_ch.clair3_output, sample, params.outdir)  
@@ -1500,108 +1606,32 @@ workflow {
 
     filter_gene_cov_ch = filter_gene_cov(filter_gene_cov, format_genes_cov_ch.format_unique_genes_coverage)
 
-    write_user_params_ch = write_user_params(sample, input_bam, reference, outdir, threads, minimum_mgmt_cov, annotations, params.rapidcns2, params.sturgeon, params.nanodx, params.nanoplot)
+    write_user_params_ch = write_user_params(sample, input_bam, reference, outdir, threads, minimum_mgmt_cov, annotations, params.nanoplot)
 
     ////////////////////////////////////////
     // Decode various classifier options //
     ///////////////////////////////////////
 
-    if (params.rapidcns2 != false ) {
-        if ( params.sturgeon != false ) {
-            // modkit extract values
-            modkit_extract_ch = STURGEON_modkit_extract(modkit_adjust_ch.modkit_merged_bam, sample, threads)
+    // modkit extract values
+    modkit_extract_ch = STURGEON_modkit_extract(modkit_adjust_ch.modkit_merged_bam, sample, threads)
 
-            // sturgeon convert input to bed file
-            sturgeon_inputtobed_ch = STURGEON_inputtobed(modkit_extract_ch.modkit_extract_output)
+    // sturgeon convert input to bed file
+    sturgeon_inputtobed_ch = STURGEON_inputtobed(modkit_extract_ch.modkit_extract_output)
 
-            // sturgeon predict
-            sturgeon_predict_ch = STURGEON_predict(sturgeon_inputtobed_ch.sturgeon_bed_convert)
+    // sturgeon predict
+    sturgeon_predict_ch = STURGEON_predict(sturgeon_inputtobed_ch.sturgeon_bed_convert)
 
-            // nanoDx section
-            if ( params.nanodx != false) {
-                nanoDx_modkit_ch = nanoDx_modkit(index_ch.indexed_bam_tuple, reference, nanoDx_mapping, sample, threads)
+    nanoDx_modkit_ch = nanoDx_modkit(index_ch.indexed_bam_tuple, index_reference_ch.reference_index, nanoDx_mapping, sample, threads)
 
-                gzip_nanoDx_modkit_ch = gzip_nanoDx_modkit(nanoDx_modkit_ch.nanoDx_modkit_out, sample)
+    gzip_nanoDx_modkit_ch = gzip_nanoDx_modkit(nanoDx_modkit_ch.nanoDx_modkit_out, sample)
 
-                nanoDx_annotate_bed_ch = nanoDx_annotate_bedMethyl(nanoDx_modkit_ch.nanoDx_modkit_out, nanoDx_mapping, sample, gzip_nanoDx_modkit_ch.nanoDx_modkit_out_gz)
+    nanoDx_annotate_bed_ch = nanoDx_annotate_bedMethyl(nanoDx_modkit_ch.nanoDx_modkit_out, nanoDx_mapping, sample, gzip_nanoDx_modkit_ch.nanoDx_modkit_out_gz)
 
-                nanoDx_classify_ch = nanoDx_NN_classify(classify_NN_bedMethyl_py, nanoDx_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
+    nanoDx_classify_capper_ch = nanoDx_NN_classify_capper(classify_NN_bedMethyl_py, nanoDx_capper_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
 
-                // generate report inc. rapid_CNS2, inc. sturgeon and inc. nanodx 
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.rf_details, rapid_cns2_ch.votes, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, sturgeon_predict_ch.sturgeon_prediction, igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, nanoDx_classify_ch.nanoDx_votes, merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-            } else {
-                // generate report inc. rapid_CNS2, inc. sturgeon without nanoDx
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.rf_details, rapid_cns2_ch.votes, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, sturgeon_predict_ch.sturgeon_prediction, igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, "NULL", merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-            }
-        } else { 
-            // nanoDx section
-            if ( params.nanodx != false) {
-                // inc. rapidCNS2, nanoDx, but no sturgeon
+    nanoDx_classify_pancan_ch = nanoDx_NN_classify_pancan(classify_NN_bedMethyl_py, nanoDx_pancan_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
 
-                nanoDx_modkit_ch = nanoDx_modkit(index_ch.indexed_bam_tuple, reference, nanoDx_mapping, sample, threads)
+    make_report_ch = make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.rf_details, rapid_cns2_ch.votes, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, sturgeon_predict_ch.sturgeon_prediction, igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, nanoDx_classify_capper_ch.nanoDx_votes, nanoDx_classify_pancan_ch.nanoDx_votes, merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params, targets, summarise_qdna_seq_ch.cnv_summary)
 
-                gzip_nanoDx_modkit_ch = gzip_nanoDx_modkit(nanoDx_modkit_ch.nanoDx_modkit_out, sample)
-
-                nanoDx_annotate_bed_ch = nanoDx_annotate_bedMethyl(nanoDx_modkit_ch.nanoDx_modkit_out, nanoDx_mapping, sample, gzip_nanoDx_modkit_ch.nanoDx_modkit_out_gz)
-
-                nanoDx_classify_ch = nanoDx_NN_classify(classify_NN_bedMethyl_py, nanoDx_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
-
-                // generate report inc. nanoDx without sturgeon
-                
-                  make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.rf_details, rapid_cns2_ch.votes, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, "NULL", igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, nanoDx_classify_ch.nanoDx_votes, merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-            } else {
-                // collect data and generate final report inc. rapidCNS2,  no sturgeon and no nanoDx
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.rf_details, rapid_cns2_ch.votes, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, "NULL", igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, "NULL", merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-
-            // close else nanoDx == false
-            }
-        }
-    } else {
-        if ( params.sturgeon != false ) {
-            // modkit extract values
-            modkit_extract_ch = STURGEON_modkit_extract(modkit_adjust_ch.modkit_merged_bam, sample, threads)
-
-            // sturgeon convert input to bed file
-            sturgeon_inputtobed_ch = STURGEON_inputtobed(modkit_extract_ch.modkit_extract_output)
-
-            // sturgeon predict
-            sturgeon_predict_ch = STURGEON_predict(sturgeon_inputtobed_ch.sturgeon_bed_convert)
-
-            if ( params.nanodx != false) {
-                nanoDx_modkit_ch = nanoDx_modkit(index_ch.indexed_bam_tuple, reference, nanoDx_mapping, sample, threads)
-
-                gzip_nanoDx_modkit_ch = gzip_nanoDx_modkit(nanoDx_modkit_ch.nanoDx_modkit_out, sample)
-
-                nanoDx_annotate_bed_ch = nanoDx_annotate_bedMethyl(nanoDx_modkit_ch.nanoDx_modkit_out, nanoDx_mapping, sample, gzip_nanoDx_modkit_ch.nanoDx_modkit_out_gz)
-
-                nanoDx_classify_ch = nanoDx_NN_classify(classify_NN_bedMethyl_py, nanoDx_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
-
-                // generate report no rapidCNS2, inc. nanoDx inc. sturgeon
-
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, "NULL", "NULL", filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, sturgeon_predict_ch.sturgeon_prediction, igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, nanoDx_classify_ch.nanoDx_votes, merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-            } else {
-            // generate report no rapidCNS2, inc. sturgeon without nanoDx
-            make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, "NULL", "NULL", filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, STURGEON_predict.out, igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, "NULL", merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-        }
-        } else { 
-            if ( params.nanodx != false) {
-                nanoDx_modkit_ch = nanoDx_modkit(index_ch.indexed_bam_tuple, reference, nanoDx_mapping, sample, threads)
-
-                gzip_nanoDx_modkit_ch = gzip_nanoDx_modkit(nanoDx_modkit_ch.nanoDx_modkit_out, sample)
-
-                nanoDx_annotate_bed_ch = nanoDx_annotate_bedMethyl(nanoDx_modkit_ch.nanoDx_modkit_out, nanoDx_mapping, sample, gzip_nanoDx_modkit_ch.nanoDx_modkit_out_gz)
-
-                nanoDx_classify_ch = nanoDx_NN_classify(classify_NN_bedMethyl_py, nanoDx_model, nanoDx_annotate_bed_ch.nanoDx_annotate_out, sample)
-
-                // generate report no rapidCNS2, inc. nanoDx without sturgeon
-
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, "NULL", "NULL", filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, "NULL", igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, nanoDx_classify_ch.nanoDx_votes, merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-
-            } else {
-            // get here when all classifier are false
-                make_report(makereport, cnvpytor_ch.cnv_plot, mgmt_pred_ch.mgmt_status, "NULL", "NULL", filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, sample, report_UKHD, mosdepth_ch.mosdepth_out, mgmt_coverage_ch.mgmt_avg_cov, minimum_mgmt_cov, "NULL", igv_reports_ch.igv_report, nextflow_version, input_bam, find_seq_platform_ch.seq_platform, "NULL", merge_versions_files_ch.versions_file, filter_gene_cov_ch.filtered_unique_genes_coverage, methyl_artist_ch.mgmt_plot, filter_gene_cov_ch.avg_gene_cov, write_user_params_ch.user_params)
-
-            }
-        }
-    }
+    build_results_table(sample, tabulate_snps_sh, mgmt_coverage_ch.sample_results_table, summarise_qdna_seq_ch.cnv_summary, filter_report_ch.clair3_report_csv, filter_report_somatic_ch.somatic_clair3_report_csv, mgmt_pred_ch.mgmt_status, rapid_cns2_ch.votes, sturgeon_predict_ch.sturgeon_prediction, nanoDx_classify_capper_ch.nanoDx_votes, nanoDx_classify_pancan_ch.nanoDx_votes)
 }
