@@ -30,7 +30,7 @@ nextflow
 ```
 git clone https://github.com/graemefox/SCARLET.git
 wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/Capper_et_al_NN.pkl?inline=false -O SCARLET/src/Capper_et_al_NN.pkl
-wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/pancan_devel_v5i_NN.pkl?ref_type=heads&inline=false -O SCARLET/src/pancan_devel_v5i_NN.pkl
+wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/pancan_devel_v5i_NN.pkl?inline=false -O SCARLET/src/pancan_devel_v5i_NN.pkl
 ```
 
 ### Pull the DEV SCARLET docker image:
