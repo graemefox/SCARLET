@@ -17,11 +17,12 @@ You need to provide:
 2) second model added to nanoDx/crossNN classifier: pancan
 3) CNV results summarised in table in report
 4) New output generated: csv file of results
+5) Singularity support
 
 ### Software Requirements:
 ```
 git
-docker
+docker / singularity
 nextflow
 ```
 
@@ -49,27 +50,48 @@ nextflow pull epi2me-labs/wf-human-variation
 SAMPLE=sample_01
 OUTDIR=${SAMPLE}_output
 BAM=my_data.bam
-REFERENCE=my_reference.fa.gz
+REFERENCE=my_reference.fa
 ANNOTATIONS=my_annotation_set.gtf
 
 ## run the pipeline
 nextflow run SCARLET/main.nf \
-        -with-docker graefox/scarlet:latest \
+        -profile standard \ 
         --sample $SAMPLE \
         --bam $BAM \
         --outdir $OUTDIR \
         --reference $REFERENCE \
         --annotations $ANNOTATIONS \
-        --nanoplot \
+        --nanoplot
+```
+
+### Download and analyse demo data
+```
+git clone https://github.com/LooseLab/ROBIN_test_set_A.git
+samtools merge -@16 -o demo_data.merged.sorted.bam ROBIN_test_set_A/test_data_set/*.bam
+samtools index -@16 demo_data.merged.sorted.bam
+
+BAM=demo_data.merged.sorted.bam
+SAMPLE=demo_data_sample
+OUTDIR=$SAMPLE_output
+
+nextflow run SCARLET/main.nf \
+  -profile standard \
+  --sample $SAMPLE \
+  --bam $BAM \
+  --outdir $OUTDIR \
+  --reference $REFERENCE \
+  --annotations $ANNOTATIONS \
+  --nanoplot
 ```
 
 ### Optional extra parameters (with their default values)
 These a have default values specified in the nextflow.config file, but you may override them on the CLI.
 ```
---threads 16 (CPUs to use [default: 64]) 
---bam_min_coverage (minimum coverage required to run the epi2melabs/wf-human-variation stages [ default: 5]) 
---minimum_mgmt_cov (minimum avg coverage at the mgmt promoter. Coverage must be greater than this to run the analysis of mgmt methylation)
---nanoplot (nextflow will ALSO run NanoPlot to generate a QC report[ Default behaviour is to NOT run nanoplot])
+"--threads 16" (CPUs to use [default: 64]) 
+"--bam_min_coverage 1" (minimum coverage required to run the epi2melabs/wf-human-variation stages [ default: 1]) 
+"--minimum_mgmt_cov 5" (minimum avg coverage at the mgmt promoter. Coverage must be greater than this to run the analysis of mgmt methylation [ default: 5])
+"--nanoplot" (nextflow will ALSO run NanoPlot to generate a QC report[ Default behaviour is to NOT run nanoplot])
+"-profile singularity" to use singularity rather than docker (standard). Suitable for use on HPC systems
 ```
 
 ### To run with slurm
