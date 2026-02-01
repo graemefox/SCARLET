@@ -28,7 +28,7 @@ nextflow
 
 ### Clone repo and download required models
 ```
-git clone https://github.com/graemefox/SCARLET.git
+git clone --branch dev --single-branch https://github.com/graemefox/SCARLET.git
 wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/Capper_et_al_NN.pkl?inline=false -O SCARLET/src/Capper_et_al_NN.pkl
 wget https://gitlab.com/euskirchen-lab/crossNN/-/raw/master/models/pancan_devel_v5i_NN.pkl?inline=false -O SCARLET/src/pancan_devel_v5i_NN.pkl
 ```
