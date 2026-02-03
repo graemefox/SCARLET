@@ -56,6 +56,7 @@ ANNOTATIONS=my_annotation_set.gtf
 ## run the pipeline
 nextflow run SCARLET/main.nf \
         -profile standard \ 
+        -c SCARLET/nextflow.config \
         --sample $SAMPLE \
         --bam $BAM \
         --outdir $OUTDIR \
