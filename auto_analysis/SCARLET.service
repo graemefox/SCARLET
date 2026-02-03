@@ -1,0 +1,17 @@
+[Unit]
+Description=SCARLET_auto
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=yes    # change to yes to have the service auto start on boot
+StandardOutput=journal
+ExecStart=/path/to/scarlet_auto/python -u \
+          /path/to/SCARLET/auto_analysis/SCARLET_watchdog.py \
+          -i /path/to/auto_SCARLET/ \
+          -r /path/to/SCARLET/ \
+          -t 64 \
+          -f /path/to/hg38_ref.fa \
+          -a /path/to/Homo_sapiens.GRCh38.gtf
+[Install]
+WantedBy=multi-user.target

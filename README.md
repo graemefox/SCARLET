@@ -72,10 +72,11 @@ samtools index -@16 demo_data.merged.sorted.bam
 
 BAM=demo_data.merged.sorted.bam
 SAMPLE=demo_data_sample
-OUTDIR=$SAMPLE_output
+OUTDIR=${SAMPLE}_output
 
 nextflow run SCARLET/main.nf \
   -profile standard \
+  -c SCARLET/nextflow.config \
   --sample $SAMPLE \
   --bam $BAM \
   --outdir $OUTDIR \
@@ -93,6 +94,72 @@ These a have default values specified in the nextflow.config file, but you may o
 "--nanoplot" (nextflow will ALSO run NanoPlot to generate a QC report[ Default behaviour is to NOT run nanoplot])
 "-profile singularity" to use singularity rather than docker (standard). Suitable for use on HPC systems
 ```
+
+### Setting up SCARLET to monitor a directory for input BAMS - aka. the magic folder
+On Linux systems you can set up a 'watchdog' that will watch for new BAM files being added to a specified location that will then be analysed.
+The BAM requirements are identical to those above except a .bai index is not required (it will be automatically generated).
+Conda is required on the system (https://www.anaconda.com/docs/getting-started/miniconda/main).
+
+Create the required conda environment
+```
+conda env create -f SCARLET/auto_analysis/scarlet_auto.yaml
+```
+
+Copy the path to the scarlet_auto Python interpreter given by the following command.
+```
+conda run -n scarlet_auto which python
+```
+
+Edit the included SCARLET.service file with paths suitable for your system (nano SCARLET/auto_analysis/SCARLET.service)
+```
+[Unit]
+Description=SCARLET_auto
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=no   # change to yes to have the service auto start on boot
+StandardOutput=journal
+ExecStart=/path/to/scarlet_auto/python -u \
+          /path/to/SCARLET/auto_analysis/SCARLET_watchdog.py \
+          -i /path/to/auto_SCARLET/ \
+          -r /path/to/SCARLET/ \
+          -t 64 \
+          -f /path/to/hg38_ref.fa \
+          -a /path/to/Homo_sapiens.GRCh38.gtf
+[Install]
+WantedBy=multi-user.target
+```
+
+Where arguments in 'ExecStart' are the following, respectively
+1) path to the Python interprator you copied above
+2) path to SCARLET_watchdog.py in the SCARLET directory downloaded from GitHub
+3) path to the directory to watch for BAM files aka. location of the magic folder
+4) path to the SCARLET directory downloaded from GitHub
+5) number of threads to use
+6) path to hg38 reference genome fasta file
+7) path to hg38 reference annotations GTF file
+
+Copy the SCARLET.service file to systemd, update and start the service.
+
+```
+sudo cp SCARLET/auto_analysis/SCARLET.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start SCARLET.service 
+
+# you can stop the service with
+# sudo systemctl stop SCARLET.service
+```
+
+Monitor the service with journalctl and copy (or symlink) a file into the magic folder to start an analysis
+```
+sudo journalctl -f -u SCARLET.service
+
+# then in another terminal window
+cp my_data.bam /path/to/auto_SCARLET/
+```
+
+You should see messages in journalctl that a new BAM has been found, indexing has run, and that the various SCARLET processing steps are running.
 
 ### To run with slurm
 Add `-process.executor='slurm'` to your nextflow command, then run as normal. You do not need to submit a script with SBATCH, just run the nextflow command as normal and nextflow knows

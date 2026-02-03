@@ -1,0 +1,9 @@
+name: scarlet_auto
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - pysam==0.23.3
+    - watchdog==6.0.0
